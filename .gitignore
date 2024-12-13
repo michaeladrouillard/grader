@@ -4,4 +4,4 @@ src/config.py
 *.pyc
 .DS_Store
 src/config.py
-chroma/
+**/chroma/
