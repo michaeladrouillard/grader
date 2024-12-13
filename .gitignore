@@ -3,3 +3,5 @@ src/config.py
 **/__pycache__/
 *.pyc
 .DS_Store
+src/config.py
+chroma/
