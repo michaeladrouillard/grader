@@ -1,6 +1,6 @@
 
 
-const API_ENDPOINT = 'https://grader-a04u.onrender.com'; // Replace with your deployed API endpoint
+const API_ENDPOINT = 'https://grader-a04u.onrender.com/api/grade'; // Replace with your deployed API endpoint
 
 document.getElementById('gradeForm').addEventListener('submit', async (e) => {
     e.preventDefault();
