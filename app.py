@@ -1,7 +1,7 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from src.repo_grader import RepoGrader
-from src.config import GITHUB_API_TOKEN, ANTHROPIC_API_TOKEN
+import os
 
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
@@ -15,6 +15,9 @@ def grade_repo():
         if not repo_url:
             return jsonify({'error': 'Repository URL is required'}), 400
 
+        github_token = os.environ.get('GITHUB_TOKEN')
+        anthropic_api_key = os.environ.get('ANTHROPIC_API_KEY')
+
         # Parse GitHub URL
         parts = repo_url.strip("/").split("/")
         owner = parts[-2]
@@ -22,8 +25,8 @@ def grade_repo():
 
         # Initialize grader
         grader = RepoGrader(
-            github_token=GITHUB_API_TOKEN,
-            anthropic_api_key=ANTHROPIC_API_TOKEN,
+            github_token=github_token,
+            anthropic_api_key=anthropic_api_key,
             rubric_path="src/data/rubric.json"
         )
 
