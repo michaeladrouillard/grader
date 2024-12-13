@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Repository Grader</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/11.1.1/marked.min.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css" rel="stylesheet">
+</head>
+<body class="bg-gray-100">
+    <div class="min-h-screen py-12 px-4 sm:px-6 lg:px-8">
+        <div class="max-w-4xl mx-auto">
+            <!-- Header -->
+            <div class="text-center mb-8">
+                <h1 class="text-4xl font-bold text-gray-900 mb-2">Repository Grader</h1>
+                <p class="text-lg text-gray-600">Grade GitHub repositories against your rubric</p>
+            </div>
+
+            <!-- Main Card -->
+            <div class="bg-white shadow-lg rounded-lg p-6">
+                <!-- Input Form -->
+                <form id="gradeForm" class="mb-8">
+                    <div class="flex gap-4">
+                        <input 
+                            type="text" 
+                            id="repoUrl" 
+                            placeholder="https://github.com/username/repository" 
+                            class="flex-1 border rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                            required
+                        >
+                        <button 
+                            type="submit" 
+                            id="submitBtn"
+                            class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                        >
+                            Grade Repository
+                        </button>
+                    </div>
+                </form>
+
+                <!-- Loading State -->
+                <div id="loadingState" class="hidden">
+                    <div class="text-center py-12">
+                        <div class="animate-spin h-12 w-12 border-4 border-blue-500 border-t-transparent rounded-full mx-auto mb-4"></div>
+                        <p class="text-gray-600 text-lg">Grading in progress...</p>
+                        <div id="progress" class="text-sm text-gray-500 mt-2"></div>
+                    </div>
+                </div>
+
+                <!-- Error Message -->
+                <div id="errorState" class="hidden">
+                    <div class="bg-red-50 border-l-4 border-red-500 p-4 mb-8">
+                        <div class="flex">
+                            <div class="flex-shrink-0">
+                                <svg class="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
+                                    <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"/>
+                                </svg>
+                            </div>
+                            <div class="ml-3">
+                                <p class="text-sm text-red-700" id="errorMessage"></p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Results Section -->
+                <div id="results" class="hidden">
+                    <div id="scoreCard" class="mb-8 p-6 bg-gray-50 rounded-lg">
+                        <h2 class="text-2xl font-bold text-gray-900 mb-2">Overall Score</h2>
+                        <p class="text-5xl font-bold text-blue-600" id="totalScore">0%</p>
+                    </div>
+
+                    <!-- Critical Items -->
+                    <div id="criticalItems" class="mb-8">
+                        <h2 class="text-xl font-bold text-gray-900 mb-4">Critical Items</h2>
+                        <div id="criticalItemsList" class="space-y-4"></div>
+                    </div>
+
+                    <!-- Regular Items -->
+                    <div id="regularItems">
+                        <h2 class="text-xl font-bold text-gray-900 mb-4">Regular Items</h2>
+                        <div id="regularItemsList" class="space-y-4"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = 'YOUR_API_ENDPOINT'; // Replace with your actual API endpoint
+
+        document.getElementById('gradeForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const repoUrl = document.getElementById('repoUrl').value;
+            const submitBtn = document.getElementById('submitBtn');
+            const loadingState = document.getElementById('loadingState');
+            const errorState = document.getElementById('errorState');
+            const results = document.getElementById('results');
+            
+            // Reset states
+            submitBtn.disabled = true;
+            loadingState.classList.remove('hidden');
+            errorState.classList.add('hidden');
+            results.classList.add('hidden');
+            
+            try {
+                const response = await fetch(API_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ repoUrl }),
+                });
+
+                const data = await response.json();
+
+                if (!data.success) {
+                    throw new Error(data.error);
+                }
+
+                displayResults(data.data);
+                results.classList.remove('hidden');
+            } catch (err) {
+                document.getElementById('errorMessage').textContent = err.message;
+                errorState.classList.remove('hidden');
+            } finally {
+                submitBtn.disabled = false;
+                loadingState.classList.add('hidden');
+            }
+        });
+
+        function displayResults(data) {
+            // Update total score
+            document.getElementById('totalScore').textContent = `${data.total_score.toFixed(2)}%`;
+
+            // Clear previous results
+            document.getElementById('criticalItemsList').innerHTML = '';
+            document.getElementById('regularItemsList').innerHTML = '';
+
+            // Helper function to create grade item HTML
+            const createGradeItem = (title, grade, explanation, maxPoints) => `
+                <div class="bg-white p-4 rounded-lg shadow">
+                    <h3 class="font-semibold text-lg text-gray-900">${title}</h3>
+                    <p class="text-blue-600 font-bold mt-1">Score: ${grade}/${maxPoints}</p>
+                    <p class="text-gray-600 mt-2">${explanation}</p>
+                </div>
+            `;
+
+            // Display items
+            Object.entries(data.grades).forEach(([title, grade]) => {
+                const explanation = data.explanations[title];
+                const rubricItem = data.rubric_items.find(item => item.title === title);
+                const maxPoints = rubricItem?.range?.max || 0;
+                const isCritical = rubricItem?.critical || false;
+
+                const gradeHtml = createGradeItem(title, grade, explanation, maxPoints);
+                
+                if (isCritical) {
+                    document.getElementById('criticalItemsList').innerHTML += gradeHtml;
+                } else {
+                    document.getElementById('regularItemsList').innerHTML += gradeHtml;
+                }
+            });
+        }
+    </script>
+</body>
+</html>

@@ -1,2 +1,6 @@
 openai
-requests
+langchain
+langchain-community
+faiss-cpu
+gitpython
+numpy
