@@ -139,10 +139,10 @@
             document.getElementById('regularItemsList').innerHTML = '';
 
             // Helper function to create grade item HTML
-            const createGradeItem = (title, grade, explanation, maxPoints) => `
+            const createGradeItem = (title, grade, explanation) => `
                 <div class="bg-white p-4 rounded-lg shadow">
                     <h3 class="font-semibold text-lg text-gray-900">${title}</h3>
-                    <p class="text-blue-600 font-bold mt-1">Score: ${grade}/${maxPoints}</p>
+                    <p class="text-blue-600 font-bold mt-1">Score: ${grade}</p>
                     <p class="text-gray-600 mt-2">${explanation}</p>
                 </div>
             `;
@@ -150,17 +150,11 @@
             // Display items
             Object.entries(data.grades).forEach(([title, grade]) => {
                 const explanation = data.explanations[title];
-                const rubricItem = data.rubric_items.find(item => item.title === title);
-                const maxPoints = rubricItem?.range?.max || 0;
-                const isCritical = rubricItem?.critical || false;
-
-                const gradeHtml = createGradeItem(title, grade, explanation, maxPoints);
+                const gradeHtml = createGradeItem(title, grade, explanation);
                 
-                if (isCritical) {
-                    document.getElementById('criticalItemsList').innerHTML += gradeHtml;
-                } else {
-                    document.getElementById('regularItemsList').innerHTML += gradeHtml;
-                }
+                // Since we might not have rubric_items info, use a simpler approach
+                // You can add logic here to determine critical vs regular items if needed
+                document.getElementById('regularItemsList').innerHTML += gradeHtml;
             });
         }
     </script>
