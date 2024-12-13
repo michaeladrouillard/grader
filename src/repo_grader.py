@@ -8,7 +8,7 @@ import fnmatch
 from typing import Dict, List, Any
 from datetime import datetime
 import anthropic
-from config import GITHUB_API_TOKEN, ANTHROPIC_API_TOKEN
+from src.config import GITHUB_API_TOKEN, ANTHROPIC_API_TOKEN
 
 class RepoGrader:
     def __init__(self, github_token: str, anthropic_api_key: str, rubric_path: str):
