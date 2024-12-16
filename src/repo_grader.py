@@ -324,50 +324,43 @@ END_ITEM"""
         return self.parse_batch_response(response.content)
 
     def parse_batch_response(self, response: str) -> Dict[str, Any]:
-        """Parse the LLM's grading response"""
+        """Parse the LLM's grading response with improved multi-line handling"""
         grades = {}
         explanations = {}
         
-        current_item = None
-        current_grade = None
-        current_explanation = None
+        # Split response into item blocks
+        items = response.split('ITEM:')
         
-        for line in response.split('\n'):
-            line = line.strip()
-            if not line:
-                continue
-                
-            if line.startswith('ITEM:'):
-                if current_item and current_grade is not None:
-                    grades[current_item] = current_grade
-                    explanations[current_item] = current_explanation
-                    
-                current_item = line.replace('ITEM:', '').strip()
-                current_grade = None
-                current_explanation = None
-                
-            elif line.startswith('GRADE:'):
-                try:
-                    current_grade = float(line.replace('GRADE:', '').strip())
-                except ValueError:
-                    current_grade = 0
-                    
-            elif line.startswith('EXPLANATION:'):
-                current_explanation = line.replace('EXPLANATION:', '').strip()
-                
-            elif line == 'END_ITEM':
-                if current_item and current_grade is not None:
-                    grades[current_item] = current_grade
-                    explanations[current_item] = current_explanation
-                current_item = None
-                current_grade = None
-                current_explanation = None
-        
-        # Catch the last item if END_ITEM was missing
-        if current_item and current_grade is not None:
-            grades[current_item] = current_grade
-            explanations[current_item] = current_explanation
+        for item_block in items[1:]:  # Skip first empty split
+            lines = item_block.split('\n')
+            current_item = lines[0].strip()
+            current_grade = None
+            explanation_lines = []
             
+            in_explanation = False
+            
+            for line in lines[1:]:
+                line = line.strip()
+                if not line:
+                    continue
+                    
+                if line.startswith('GRADE:'):
+                    try:
+                        current_grade = float(line.replace('GRADE:', '').strip())
+                    except ValueError:
+                        current_grade = 0
+                elif line.startswith('EXPLANATION:'):
+                    in_explanation = True
+                    explanation_lines.append(line.replace('EXPLANATION:', '').strip())
+                elif line == 'END_ITEM':
+                    in_explanation = False
+                elif in_explanation and not line.startswith('ITEM:'):
+                    explanation_lines.append(line)
+            
+            if current_item and current_grade is not None:
+                grades[current_item] = current_grade
+                explanations[current_item] = ' '.join(explanation_lines)
+        
         return {
             'grades': grades,
             'explanations': explanations
