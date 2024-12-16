@@ -8,7 +8,7 @@ import fnmatch
 from typing import Dict, List, Any
 from datetime import datetime
 import anthropic
-from src.config import GITHUB_API_TOKEN, ANTHROPIC_API_TOKEN
+from config import GITHUB_API_TOKEN, ANTHROPIC_API_TOKEN
 
 class RepoGrader:
     def __init__(self, github_token: str, anthropic_api_key: str, rubric_path: str):
@@ -35,7 +35,7 @@ class RepoGrader:
             raise ValueError(f"Error fetching repo contents: {response.status_code}")
 
     def fetch_file_content(self, url: str) -> str:
-        """Fetch and decode content of a single file with robust encoding handling"""
+        """Fetch and decode content of a single file"""
         headers = {
             "Authorization": f"token {self.github_token}",
             "Accept": "application/vnd.github+json"
@@ -43,120 +43,334 @@ class RepoGrader:
         response = requests.get(url, headers=headers)
         if response.status_code == 200:
             content = response.json()["content"]
-            decoded_bytes = base64.b64decode(content)
-            
-            # Try different encodings
-            encodings = ['utf-8', 'latin1', 'cp1252', 'iso-8859-1']
-            for encoding in encodings:
-                try:
-                    return decoded_bytes.decode(encoding)
-                except UnicodeDecodeError:
-                    continue
-                    
-            # If no encoding worked, return a placeholder message
-            return "[File content could not be decoded - binary or unsupported encoding]"
+            try:
+                return base64.b64decode(content).decode('utf-8')
+            except UnicodeDecodeError:
+                return "[Binary file content]"
         return ""
 
-    def create_grading_prompt(self, rubric_item: Dict[str, Any], repo_files: Dict[str, str]) -> str:
-        """Create a prompt for grading a specific rubric item"""
-        prompt_template = """
-        You are grading a GitHub repository according to this rubric item:
+    def preprocess_repo_content(self, repo_files: Dict[str, str]) -> Dict[str, Dict[str, Any]]:
+        """Group repository content by type, storing only metadata for data files"""
+        processed = {
+            'documentation': {},  # .md, .qmd, .Rmd, etc
+            'code': {},          # .py, .R, etc
+            'data_metadata': {}, # Only metadata for data files
+            'other': {}          # Everything else
+        }
         
-        Title: {title}
-        Criteria: {criteria}
-        Possible scores: {values}
-        Maximum points: {max_points}
-        Is critical: {is_critical}
-        
-        Here are all the files from the repository:
-        
-        {files}
-        
-        Important grading instructions:
-        1. Consider ALL files when grading, not just the README. Many projects put their main content in paper.qmd, paper.Rmd, paper.pdf, or similar files.
-        2. For citations and references, check ALL document files (md, qmd, Rmd, pdf, tex), not just the README.
-        3. For code-related criteria, focus on .R, .py and similar files.
-        4. Grade based on the overall repository content, not any single file.
-        
-        Please grade this repository for this rubric item. Provide:
-        1. A numerical grade based on the possible scores (must be one of the exact scores listed above)
-        2. A detailed explanation of why you assigned this grade, mentioning which files contained relevant content
-        
-        Format your response exactly as:
-        GRADE: [numerical grade]
-        EXPLANATION: [your detailed explanation]
-        """
-        
-        files_content = "\n\n=== FILE: ".join([f"{path}\n{content}" 
-                                           for path, content in repo_files.items()])
-        
-        return prompt_template.format(
-            title=rubric_item["title"],
-            criteria=rubric_item["criteria"],
-            values=json.dumps(rubric_item["values"], indent=2),
-            max_points=rubric_item["range"]["max"],
-            is_critical=rubric_item.get("critical", False),
-            files="=== FILE: " + files_content
-        )
+        for path, content in repo_files.items():
+            if not content:
+                continue
+                
+            ext = path.lower().split('.')[-1]
+            
+            if ext in ['md', 'qmd', 'rmd', 'txt']:
+                processed['documentation'][path] = content
+            elif ext in ['py', 'r', 'ipynb']:
+                processed['code'][path] = content
+            elif ext in ['csv', 'parquet', 'json', 'xlsx', 'xls', 'dta', 'sav', 'dat']:
+                # Store only metadata for data files
+                processed['data_metadata'][path] = {
+                    'path': path,
+                    'size': len(content),
+                    'extension': ext,
+                    'directory': '/'.join(path.split('/')[:-1]) or '.'
+                }
+            else:
+                processed['other'][path] = f"[File: {path}]"
+                
+        return processed
 
     def analyze_repo(self, owner: str, repo: str) -> Dict[str, Any]:
-        """Analyze repository contents and grade according to rubric"""
+        """Analyze repository with optimized LLM usage"""
+        print(f"Fetching repository contents for {owner}/{repo}...")
         contents = self.get_repo_contents(owner, repo)
         repo_files = {}
         
-        # Fetch contents of relevant files
+        print("Processing files...")
         for file in contents:
             if file["type"] == "blob":
-                if any(file["path"].endswith(ext) for ext in ['.md', '.qmd', '.py', '.R', '.r', '.Rmd', '.json', '.txt']):
-                    repo_files[file["path"]] = self.fetch_file_content(file["url"])
+                repo_files[file["path"]] = self.fetch_file_content(file["url"])
 
+        processed_content = self.preprocess_repo_content(repo_files)
+        
+        print("Starting grading process...")
+        results = self.batch_grade_rubric(processed_content)
+        
+        return results
+
+    def format_rubric_item(self, item: Dict[str, Any]) -> str:
+        """Format a rubric item for inclusion in prompts"""
+        return (f"Title: {item['title']}\n"
+                f"Criteria: {item['criteria']}\n"
+                f"Possible scores: {item['values']}\n"
+                f"Maximum points: {item['range']['max']}\n"
+                f"Is critical: {item.get('critical', False)}")
+
+    def batch_grade_rubric(self, processed_content: Dict[str, Dict[str, str]]) -> Dict[str, Any]:
+        """Grade rubric items in strategic batches"""
+        results = {
+            'grades': {},
+            'explanations': {}
+        }
+        
+        # First batch: Critical requirements
+        print("Grading critical requirements...")
+        critical_items = [item for item in self.rubric if item.get('critical', False)]
+        critical_results = self.grade_critical_batch(critical_items, processed_content)
+        results['grades'].update(critical_results['grades'])
+        results['explanations'].update(critical_results['explanations'])
+        
+        if any(grade == 0 for grade in critical_results['grades'].values()):
+            print("Critical requirement failed - stopping grading process")
+            return results
+            
+        # Second batch: Document structure and content
+        print("Grading document structure and content...")
+        doc_items = [item for item in self.rubric 
+                    if not item.get('critical', False) and 
+                    item['title'].lower() in ['abstract', 'introduction', 'data', 'results', 
+                                            'discussion', 'title', 'prose']]
+        doc_results = self.grade_document_batch(doc_items, processed_content)
+        results['grades'].update(doc_results['grades'])
+        results['explanations'].update(doc_results['explanations'])
+        
+        # Third batch: Technical implementation
+        print("Grading technical implementation...")
+        tech_items = [item for item in self.rubric 
+                     if not item.get('critical', False) and 
+                     item['title'].lower() in ['model', 'simulation', 'tests-simulation', 
+                                             'tests-actual', 'reproducible workflow']]
+        tech_results = self.grade_technical_batch(tech_items, processed_content)
+        results['grades'].update(tech_results['grades'])
+        results['explanations'].update(tech_results['explanations'])
+        
+        # Fourth batch: Everything else
+        remaining_items = [item for item in self.rubric 
+                         if item['title'] not in results['grades']]
+        if remaining_items:
+            print("Grading remaining items...")
+            remaining_results = self.grade_remaining_batch(remaining_items, processed_content)
+            results['grades'].update(remaining_results['grades'])
+            results['explanations'].update(remaining_results['explanations'])
+        
+        # Calculate total score
+        results['total_score'] = self.calculate_total_score(results['grades'])
+        
+        return results
+
+    def grade_critical_batch(self, items: List[Dict], 
+                           content: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
+        """Grade critical pass/fail requirements"""
+        prompt = """You are evaluating critical pass/fail requirements for an academic paper.
+These requirements MUST be met for the paper to pass.
+
+Critical requirements to evaluate:
+{requirements}
+
+Repository content:
+
+Documentation files:
+{docs}
+
+Code files:
+{code}
+
+Data files present:
+{data_files}
+
+Evaluate each requirement carefully, looking for clear evidence in ANY file.
+Consider code comments, documentation, and all relevant text.
+
+For each requirement, provide your response in exactly this format:
+ITEM: [requirement title]
+GRADE: [0 or 1]
+EXPLANATION: [detailed explanation with specific evidence]
+END_ITEM"""
+        
+        formatted_requirements = "\n\n".join(self.format_rubric_item(item) for item in items)
+        
+        response = self.llm.invoke(prompt.format(
+            requirements=formatted_requirements,
+            docs="\n\n".join(f"File: {path}\nContent:\n{content}" 
+                            for path, content in content['documentation'].items()),
+            code="\n\n".join(f"File: {path}\nContent:\n{content}" 
+                            for path, content in content['code'].items()),
+            data_files=json.dumps(content['data_metadata'], indent=2)
+        ))
+        
+        return self.parse_batch_response(response.content)
+
+    def grade_document_batch(self, items: List[Dict], 
+                           content: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
+        """Grade document structure and content items"""
+        prompt = """You are evaluating the structure and content of an academic paper.
+Focus on writing quality, organization, and completeness of required sections.
+
+Items to evaluate:
+{items}
+
+Document files:
+{docs}
+
+For each item, provide your response in exactly this format:
+ITEM: [item title]
+GRADE: [numerical grade based on item's range]
+EXPLANATION: [detailed explanation with specific evidence]
+END_ITEM"""
+        
+        formatted_items = "\n\n".join(self.format_rubric_item(item) for item in items)
+        
+        response = self.llm.invoke(prompt.format(
+            items=formatted_items,
+            docs="\n\n".join(f"File: {path}\nContent:\n{content}" 
+                            for path, content in content['documentation'].items())
+        ))
+        
+        return self.parse_batch_response(response.content)
+
+    def grade_technical_batch(self, items: List[Dict], 
+                         content: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
+        """Grade technical implementation items with size management"""
+        # Only include .py and .R files
+        main_code = {k: v for k, v in content['code'].items() 
+                    if k.lower().endswith(('.r', '.py'))}
+        
+        # Split into multiple batches if needed
+        results = {'grades': {}, 'explanations': {}}
+        code_items = list(main_code.items())
+        batch_size = 3  # Process 3 files at a time
+        
+        for i in range(0, len(code_items), batch_size):
+            batch_files = dict(code_items[i:i + batch_size])
+            
+            prompt = """You are evaluating the technical implementation of an academic paper.
+Focus on code quality, testing, reproducibility, and technical completeness.
+
+Items to evaluate:
+{items}
+
+Code files (batch {batch_num} of {total_batches}):
+{code}
+
+Data files present in repository (metadata only):
+{data_metadata}
+
+For each item, provide your response in exactly this format:
+ITEM: [item title]
+GRADE: [numerical grade based on item's range]
+EXPLANATION: [detailed explanation with specific evidence]
+END_ITEM"""
+            
+            formatted_items = "\n\n".join(self.format_rubric_item(item) for item in items)
+            total_batches = (len(code_items) + batch_size - 1) // batch_size
+            current_batch = i // batch_size + 1
+            
+            response = self.llm.invoke(prompt.format(
+                items=formatted_items,
+                batch_num=current_batch,
+                total_batches=total_batches,
+                code="\n\n".join(f"File: {path}\nContent:\n{content}" 
+                                for path, content in batch_files.items()),
+                data_metadata=json.dumps(content['data_metadata'], indent=2)
+            ))
+            
+            batch_results = self.parse_batch_response(response.content)
+            
+            # For first batch, use the grades as is
+            if i == 0:
+                results = batch_results
+            # For subsequent batches, update grades if they're higher
+            else:
+                for title in batch_results['grades']:
+                    if title not in results['grades'] or batch_results['grades'][title] > results['grades'][title]:
+                        results['grades'][title] = batch_results['grades'][title]
+                        results['explanations'][title] = batch_results['explanations'][title]
+        
+        return results
+
+    def grade_remaining_batch(self, items: List[Dict], 
+                            content: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
+        """Grade remaining rubric items"""
+        prompt = """Grade these remaining rubric items considering all repository content.
+
+Items to evaluate:
+{items}
+
+Repository structure:
+{repo_structure}
+
+For each item, provide your response in exactly this format:
+ITEM: [item title]
+GRADE: [numerical grade based on item's range]
+EXPLANATION: [detailed explanation with specific evidence]
+END_ITEM"""
+        
+        formatted_items = "\n\n".join(self.format_rubric_item(item) for item in items)
+        
+        # Create a repository structure summary
+        repo_structure = {
+            'documentation_files': list(content['documentation'].keys()),
+            'code_files': list(content['code'].keys()),
+            'data_files': content['data_metadata'],
+            'other_files': list(content['other'].keys())
+        }
+        
+        response = self.llm.invoke(prompt.format(
+            items=formatted_items,
+            repo_structure=json.dumps(repo_structure, indent=2)
+        ))
+        
+        return self.parse_batch_response(response.content)
+
+    def parse_batch_response(self, response: str) -> Dict[str, Any]:
+        """Parse the LLM's grading response"""
         grades = {}
         explanations = {}
         
-        # Grade each rubric item
-        for item in self.rubric:
-            try:
-                print(f"grading reubric item {item['title']}")
-                prompt = self.create_grading_prompt(item, repo_files)
-                response = self.llm.invoke(prompt)
-                
-                grade_response = self.parse_grading_response(response, item)
-                grades[item["title"]] = grade_response["grade"]
-                explanations[item["title"]] = grade_response["explanation"]
-            except Exception as e:
-                print(f"Error grading {item['title']}: {str(e)}")
-                grades[item["title"]] = 0
-                explanations[item["title"]] = f"Error during grading: {str(e)}"
-
-        return {
-            "grades": grades,
-            "explanations": explanations,
-            "total_score": self.calculate_total_score(grades)
-        }
-
-    def parse_grading_response(self, response: str, rubric_item: Dict[str, Any]) -> Dict[str, Any]:
-        """Parse the LLM's grading response"""
-        content = response.content if hasattr(response, 'content') else str(response)
-        lines = content.strip().split('\n')
-        grade = 0
-        explanation = ""
+        current_item = None
+        current_grade = None
+        current_explanation = None
         
-        for line in lines:
-            if line.startswith("GRADE:"):
+        for line in response.split('\n'):
+            line = line.strip()
+            if not line:
+                continue
+                
+            if line.startswith('ITEM:'):
+                if current_item and current_grade is not None:
+                    grades[current_item] = current_grade
+                    explanations[current_item] = current_explanation
+                    
+                current_item = line.replace('ITEM:', '').strip()
+                current_grade = None
+                current_explanation = None
+                
+            elif line.startswith('GRADE:'):
                 try:
-                    grade = float(line.replace("GRADE:", "").strip())
-                except:
-                    grade = 0
-            elif line.startswith("EXPLANATION:"):
-                explanation = line.replace("EXPLANATION:", "").strip()
+                    current_grade = float(line.replace('GRADE:', '').strip())
+                except ValueError:
+                    current_grade = 0
+                    
+            elif line.startswith('EXPLANATION:'):
+                current_explanation = line.replace('EXPLANATION:', '').strip()
                 
-        # Validate grade is within range
-        grade = max(rubric_item["range"]["min"], 
-                   min(rubric_item["range"]["max"], grade))
-                
+            elif line == 'END_ITEM':
+                if current_item and current_grade is not None:
+                    grades[current_item] = current_grade
+                    explanations[current_item] = current_explanation
+                current_item = None
+                current_grade = None
+                current_explanation = None
+        
+        # Catch the last item if END_ITEM was missing
+        if current_item and current_grade is not None:
+            grades[current_item] = current_grade
+            explanations[current_item] = current_explanation
+            
         return {
-            "grade": grade,
-            "explanation": explanation
+            'grades': grades,
+            'explanations': explanations
         }
 
     def calculate_total_score(self, grades: Dict[str, float]) -> float:
@@ -176,13 +390,13 @@ class RepoGrader:
     def generate_markdown_report(self, owner: str, repo: str, results: Dict[str, Any]) -> str:
         """Generate a detailed markdown report of the grading results"""
         report = f"""# Grading Report for {owner}/{repo}
-Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+            Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 
-## Overall Score: {results['total_score']:.2f}%
+            ## Overall Score: {results['total_score']:.2f}%
 
-## Detailed Breakdown
+            ## Detailed Breakdown
 
-"""
+            """
         # Group items by category (critical vs non-critical)
         critical_items = []
         regular_items = []
