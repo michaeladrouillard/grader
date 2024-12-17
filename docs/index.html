@@ -15,7 +15,7 @@
                 <h1 class="text-4xl font-bold text-gray-900 mb-2">Repository Grader</h1>
                 <p class="text-lg text-gray-600">claude opus grades your repository against <a href="https://tellingstorieswithdata.com/25-papers.html#rubric-5" class="text-blue-500 underline" target="_blank" rel="noopener noreferrer">
                     Rohan's rubric
-                </a> </p>
+                </a></p>
             </div>
 
             <!-- Main Card -->
@@ -66,99 +66,11 @@
                 </div>
 
                 <!-- Results Section -->
-                <div id="results" class="hidden">
-                    <div id="scoreCard" class="mb-8 p-6 bg-gray-50 rounded-lg">
-                        <h2 class="text-2xl font-bold text-gray-900 mb-2">Overall Score</h2>
-                        <p class="text-5xl font-bold text-blue-600" id="totalScore">0%</p>
-                    </div>
-
-                    <!-- Critical Items -->
-                    <div id="criticalItems" class="mb-8">
-                        <h2 class="text-xl font-bold text-gray-900 mb-4">Critical Items</h2>
-                        <div id="criticalItemsList" class="space-y-4"></div>
-                    </div>
-
-                    <!-- Regular Items -->
-                    <div id="regularItems">
-                        <h2 class="text-xl font-bold text-gray-900 mb-4">Regular Items</h2>
-                        <div id="regularItemsList" class="space-y-4"></div>
-                    </div>
-                </div>
+                <div id="results" class="hidden"></div>
             </div>
         </div>
     </div>
 
-    <script>
-        const API_URL = 'https://grader-a04u.onrender.com/api/grade'; // Replace with your actual API endpoint
-
-        document.getElementById('gradeForm').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            
-            const repoUrl = document.getElementById('repoUrl').value;
-            const submitBtn = document.getElementById('submitBtn');
-            const loadingState = document.getElementById('loadingState');
-            const errorState = document.getElementById('errorState');
-            const results = document.getElementById('results');
-            
-            // Reset states
-            submitBtn.disabled = true;
-            loadingState.classList.remove('hidden');
-            errorState.classList.add('hidden');
-            results.classList.add('hidden');
-            
-            try {
-                const response = await fetch(API_URL, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ repoUrl }),
-                });
-
-                const data = await response.json();
-
-                if (!data.success) {
-                    throw new Error(data.error);
-                }
-
-                displayResults(data.data);
-                results.classList.remove('hidden');
-            } catch (err) {
-                document.getElementById('errorMessage').textContent = err.message;
-                errorState.classList.remove('hidden');
-            } finally {
-                submitBtn.disabled = false;
-                loadingState.classList.add('hidden');
-            }
-        });
-
-        function displayResults(data) {
-            // Update total score
-            document.getElementById('totalScore').textContent = `${data.total_score.toFixed(2)}%`;
-
-            // Clear previous results
-            document.getElementById('criticalItemsList').innerHTML = '';
-            document.getElementById('regularItemsList').innerHTML = '';
-
-            // Helper function to create grade item HTML
-            const createGradeItem = (title, grade, explanation) => `
-                <div class="bg-white p-4 rounded-lg shadow">
-                    <h3 class="font-semibold text-lg text-gray-900">${title}</h3>
-                    <p class="text-blue-600 font-bold mt-1">Score: ${grade}</p>
-                    <p class="text-gray-600 mt-2">${explanation}</p>
-                </div>
-            `;
-
-            // Display items
-            Object.entries(data.grades).forEach(([title, grade]) => {
-                const explanation = data.explanations[title];
-                const gradeHtml = createGradeItem(title, grade, explanation);
-                
-                // Since we might not have rubric_items info, use a simpler approach
-                // You can add logic here to determine critical vs regular items if needed
-                document.getElementById('regularItemsList').innerHTML += gradeHtml;
-            });
-        }
-    </script>
+    <script src="grader.js"></script>
 </body>
 </html>
