@@ -130,7 +130,7 @@ class RepoGrader:
         doc_items = [item for item in self.rubric 
                     if not item.get('critical', False) and 
                     item['title'].lower() in ['abstract', 'introduction', 'data', 'results', 
-                                            'discussion', 'title', 'prose']]
+                                            'discussion', 'title', 'prose', 'author, date, and repo']]
         doc_results = self.grade_document_batch(doc_items, processed_content)
         results['grades'].update(doc_results['grades'])
         results['explanations'].update(doc_results['explanations'])
