@@ -44,8 +44,23 @@
                 <div id="loadingState" class="hidden">
                     <div class="text-center py-12">
                         <div class="animate-spin h-12 w-12 border-4 border-blue-500 border-t-transparent rounded-full mx-auto mb-4"></div>
-                        <p class="text-gray-600 text-lg">Grading in progress...</p>
-                        <div id="progress" class="text-sm text-gray-500 mt-2"></div>
+                        <p class="text-gray-600 text-lg mb-4">Grading in progress...</p>
+                        
+                        <!-- Progress Bar -->
+                        <div class="max-w-md mx-auto mb-4">
+                            <div class="w-full bg-gray-200 rounded-full h-2.5">
+                                <div id="progressBar" 
+                                    class="bg-blue-600 h-2.5 rounded-full transition-all duration-500" 
+                                    style="width: 0%">
+                                </div>
+                            </div>
+                            <p id="progressText" class="text-sm text-gray-500 mt-2">0%</p>
+                        </div>
+
+                        <!-- Progress Updates -->
+                        <div id="progress" class="text-sm text-gray-500 mt-2 max-h-32 overflow-y-auto">
+                            <div class="space-y-1"></div>
+                        </div>
                     </div>
                 </div>
 

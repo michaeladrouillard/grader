@@ -4,6 +4,60 @@ console.log('grader.js loaded');
 // API endpoint
 const API_URL = 'https://grader-a04u.onrender.com/api/grade';
 
+// Progress bar functionality
+let progressInterval;
+
+function startProgress() {
+    let progress = 0;
+    const progressBar = document.getElementById('progressBar');
+    const progressText = document.getElementById('progressText');
+    const stages = [
+        'Fetching repository contents...',
+        'Processing files...',
+        'Analyzing critical requirements...',
+        'Evaluating documentation...',
+        'Checking technical implementation...',
+        'Finalizing grades...'
+    ];
+    let currentStage = 0;
+
+    progressInterval = setInterval(() => {
+        if (progress < 90) {  // Only auto-increment to 90%
+            // Increment more slowly as we progress
+            const increment = Math.max(0.5, (90 - progress) / 20);
+            progress = Math.min(90, progress + increment);
+            
+            // Update progress bar and text
+            progressBar.style.width = `${progress}%`;
+            progressText.textContent = `${Math.round(progress)}%`;
+
+            // Update stages
+            if (progress > (currentStage + 1) * (90 / stages.length) && currentStage < stages.length) {
+                updateProgress(stages[currentStage]);
+                currentStage++;
+            }
+        }
+    }, 200);
+}
+
+function stopProgress(success = true) {
+    clearInterval(progressInterval);
+    const progressBar = document.getElementById('progressBar');
+    const progressText = document.getElementById('progressText');
+    
+    // Instantly complete the progress bar
+    progressBar.style.width = '100%';
+    progressText.textContent = '100%';
+    progressBar.classList.remove('bg-blue-600');
+    progressBar.classList.add(success ? 'bg-green-600' : 'bg-red-600');
+}
+
+function updateProgress(message) {
+    const progress = document.getElementById('progress');
+    const timestamp = new Date().toLocaleTimeString();
+    progress.innerHTML = `<div class="text-left mb-1">${timestamp}: ${message}</div>` + progress.innerHTML;
+}
+
 // Define complete maxGrades object based on rubric
 const maxGrades = {
     // Critical items (must pass these)
@@ -95,13 +149,11 @@ const itemCategories = {
     ]
 };
 
+// Form submission handler
 document.getElementById('gradeForm').addEventListener('submit', async (e) => {
-    console.log('Form submitted');
     e.preventDefault();
     
     const repoUrl = document.getElementById('repoUrl').value;
-    console.log('Repository URL:', repoUrl);
-    
     const submitBtn = document.getElementById('submitBtn');
     const loadingState = document.getElementById('loadingState');
     const errorState = document.getElementById('errorState');
@@ -115,8 +167,10 @@ document.getElementById('gradeForm').addEventListener('submit', async (e) => {
     results.classList.add('hidden');
     progress.innerHTML = '';
     
+    // Start progress animation
+    startProgress();
+    
     try {
-        console.log('Sending request to API...');
         const response = await fetch(API_URL, {
             method: 'POST',
             headers: {
@@ -125,18 +179,18 @@ document.getElementById('gradeForm').addEventListener('submit', async (e) => {
             body: JSON.stringify({ repoUrl }),
         });
 
-        console.log('Response status:', response.status);
         const data = await response.json();
-        console.log('Response data:', data);
 
         if (!data.success) {
+            stopProgress(false);
             throw new Error(data.error || 'An error occurred during grading');
         }
 
+        stopProgress(true);
         displayResults(data.data);
         results.classList.remove('hidden');
     } catch (err) {
-        console.error('Error:', err);
+        stopProgress(false);
         document.getElementById('errorMessage').textContent = err.message;
         errorState.classList.remove('hidden');
     } finally {
@@ -148,11 +202,6 @@ document.getElementById('gradeForm').addEventListener('submit', async (e) => {
 function displayResults(data) {
     console.log('Displaying results:', data);
     const results = document.getElementById('results');
-    if (!results) {
-        console.error('Could not find results element');
-        return;
-    }
-    
     results.innerHTML = ''; // Clear previous results
 
     // Create score summary card
@@ -164,7 +213,6 @@ function displayResults(data) {
 
     // Helper function to create section
     function createSection(title, items, explanation = '') {
-        console.log(`Creating section: ${title}`);
         const totalPoints = items.reduce((acc, item) => acc + (data.grades[item] || 0), 0);
         const maxPoints = items.reduce((acc, item) => acc + maxGrades[item], 0);
         
@@ -184,7 +232,6 @@ function displayResults(data) {
 
     // Helper function to create grade item
     function createGradeItem(title, grade, explanation) {
-        console.log(`Creating grade item: ${title}, grade: ${grade}`);
         const maxGrade = maxGrades[title];
         const scoreColor = grade === undefined ? 'text-gray-500' :
                           grade === 0 ? 'text-red-600' : 
@@ -211,7 +258,6 @@ function displayResults(data) {
     }
 
     // Add sections in order
-    console.log('Adding sections...');
     results.innerHTML += createSection('Critical Requirements', itemCategories.critical, 
         'These items must pass for the paper to be accepted.');
     results.innerHTML += createSection('Documentation', itemCategories.documentation);
@@ -222,7 +268,6 @@ function displayResults(data) {
 
     // Add performance metrics if available
     if (data.timings) {
-        console.log('Adding performance metrics:', data.timings);
         results.innerHTML += `
             <div class="bg-white p-6 rounded-lg shadow-lg">
                 <h2 class="text-2xl font-bold text-gray-900 mb-4">Performance Metrics</h2>
@@ -241,5 +286,4 @@ function displayResults(data) {
             </div>
         `;
     }
-    console.log('Results display complete');
 }
