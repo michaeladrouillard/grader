@@ -3,9 +3,31 @@
 
 
 this is an app where rohan's students can submit their ongoing projects and get tailored feedback from an LLM according to his [rubric](https://tellingstorieswithdata.com/25-papers.html#rubric-5).
-it uses Claude opus to evaluate repository content (markdown files, code, repo structure, etc) and provide detailed feedback
+it uses the github API and Claude opus to crawl and evaluate repository content (markdown files, code, repo structure, etc) and provide detailed feedback.
+
 
 i used Claude for a lot of the debugging in this project and also for navigating previously uncharted waters of javascript/flask/render
+
+
+## Table of Contents
+- [Prerequisites](#prerequisites)
+- [Setup Instructions](#setup-instructions)
+  - [Step 1: Local Setup](#step-1-local-setup)
+  - [Step 2: API Keys](#step-2-api-keys)
+  - [Step 3: Local Configuration](#step-3-local-configuration)
+  - [Step 4: Deployment to Render](#step-4-deployment-to-render)
+  - [Step 5: Frontend Setup](#step-5-frontend-setup)
+- [Costs](#costs)
+- [Customizing for a Different Rubric](#customizing-for-a-different-rubric)
+  - [Updating the Rubric](#updating-the-rubric)
+  - [Update Frontend Configuration](#update-frontend-configuration)
+  - [Update Backend Processing](#update-backend-processing)
+  - [Potential Pitfalls](#potential-pitfalls)
+- [Contributing](#contributing)
+
+
+
+
 
 ## Setup Instructions
 
@@ -92,6 +114,96 @@ The grader should now be accessible at `https://yourusername.github.io/grader`!
 
 The app uses Claude 3 Opus, and when I tested it on repos students submitted for the election forecasting assignment it came out to about $0.70 per run.
 YMMV based on the repo/prompt/token count being ingested by the model, and you can track cost stuff on the [Anthropic Console](https://console.anthropic.com/).
+
+
+## Customizing for a Different Rubric
+
+### Updating the Rubric
+
+Use an LLM for all of this it will go much faster lol.
+
+1. **Modify rubric.json**
+   - Locate `src/data/rubric.json`
+   - Follow this structure for each rubric item:
+   ```json
+   {
+     "rubric_items": [
+       {
+         "title": "Item Name",
+         "range": {
+           "min": 0,
+           "max": 10  // Maximum possible points
+         },
+         "values": {
+           "0": "Poor or not done",
+           "2": "Some issues",
+           "4": "Acceptable",
+           "6": "Exceeds expectations",
+           "8": "Exceptional"
+         },
+         "criteria": "Detailed description of what to look for when grading this item",
+         "critical": false  // Set to true if failing this item should result in zero overall
+       }
+     ]
+   }
+   ```
+   
+2. **Important Notes About Rubric Structure**:
+   - Each item MUST have a UNIQUE `title`
+   - The `values` object must include all possible scores
+   - Scores must be within the `range.min` and `range.max`
+   - `critical` items should use a max score of 1 (pass/fail). This is for items where if the student doesnt do it, they fail the assignment entirely.
+
+### Update Frontend Configuration
+
+1. Modify `maxGrades` in `docs/js/grader.js`:
+```javascript
+const maxGrades = {
+    'Your Item Name': maximum_points,
+    // Add all your rubric items here
+};
+```
+
+2. Update item categories:
+```javascript
+const itemCategories = {
+    critical: [
+        // Your critical items
+    ],
+    documentation: [
+        // Your documentation items
+    ],
+    // Add other categories as needed
+};
+```
+
+### Update Backend Processing
+
+Modify category assignments in `src/repo_grader.py`:
+```python
+# In batch_grade_rubric method
+doc_items = [item for item in self.rubric 
+            if not item.get('critical', False) and 
+            item['title'].lower() in ['your', 'document', 'items']]
+
+tech_items = [item for item in self.rubric 
+             if not item.get('critical', False) and 
+             item['title'].lower() in ['your', 'technical', 'items']]
+```
+
+The backend works this way to drastically reduce the amount of tokens/LLM calls needed to grade a repo by grouping rubric items into batches based on which docs the LLM should look at.
+So, the tech items will look at .py, .ipynb, etc files and so on. 
+Depending on your rubric, you may have to play around with this, but this is basically the main juncture where you can reduce costs/latency.
+
+Once you set this up, [test locally](#step-3-local-configuration).
+
+
+### Potential pitfalls
+
+- Inconsistent item names between rubric and code
+- Forgetting to update both frontend and backend
+- Not properly setting up the [backend processing](#update-backend-processing) (i.e., during a test run the LLM wasn't grading a rubric item that evaluated whether the student put their name and date. this information would have been found in the docs (.qmd, .pdf, etc.) but instead this item ended up in a batch that was fed repo structure and metadata)
+
 
 ## Contributing
 
