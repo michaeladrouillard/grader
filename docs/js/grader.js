@@ -1,3 +1,6 @@
+// Debug line to confirm script loading
+console.log('grader.js loaded');
+
 // API endpoint
 const API_URL = 'https://grader-a04u.onrender.com/api/grade';
 
@@ -93,9 +96,12 @@ const itemCategories = {
 };
 
 document.getElementById('gradeForm').addEventListener('submit', async (e) => {
+    console.log('Form submitted');
     e.preventDefault();
     
     const repoUrl = document.getElementById('repoUrl').value;
+    console.log('Repository URL:', repoUrl);
+    
     const submitBtn = document.getElementById('submitBtn');
     const loadingState = document.getElementById('loadingState');
     const errorState = document.getElementById('errorState');
@@ -110,6 +116,7 @@ document.getElementById('gradeForm').addEventListener('submit', async (e) => {
     progress.innerHTML = '';
     
     try {
+        console.log('Sending request to API...');
         const response = await fetch(API_URL, {
             method: 'POST',
             headers: {
@@ -118,11 +125,9 @@ document.getElementById('gradeForm').addEventListener('submit', async (e) => {
             body: JSON.stringify({ repoUrl }),
         });
 
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-
+        console.log('Response status:', response.status);
         const data = await response.json();
+        console.log('Response data:', data);
 
         if (!data.success) {
             throw new Error(data.error || 'An error occurred during grading');
@@ -131,6 +136,7 @@ document.getElementById('gradeForm').addEventListener('submit', async (e) => {
         displayResults(data.data);
         results.classList.remove('hidden');
     } catch (err) {
+        console.error('Error:', err);
         document.getElementById('errorMessage').textContent = err.message;
         errorState.classList.remove('hidden');
     } finally {
@@ -140,19 +146,25 @@ document.getElementById('gradeForm').addEventListener('submit', async (e) => {
 });
 
 function displayResults(data) {
+    console.log('Displaying results:', data);
     const results = document.getElementById('results');
+    if (!results) {
+        console.error('Could not find results element');
+        return;
+    }
+    
     results.innerHTML = ''; // Clear previous results
 
     // Create score summary card
     results.innerHTML = `
         <div class="bg-white p-6 rounded-lg shadow-lg mb-8">
             <h2 class="text-3xl font-bold text-gray-900">Overall Score: ${data.total_score.toFixed(2)}%</h2>
-            ${data.timings ? `<p class="text-sm text-gray-500 mt-2">Graded in ${data.timings.total.toFixed(2)} seconds</p>` : ''}
         </div>
     `;
 
     // Helper function to create section
     function createSection(title, items, explanation = '') {
+        console.log(`Creating section: ${title}`);
         const totalPoints = items.reduce((acc, item) => acc + (data.grades[item] || 0), 0);
         const maxPoints = items.reduce((acc, item) => acc + maxGrades[item], 0);
         
@@ -172,6 +184,7 @@ function displayResults(data) {
 
     // Helper function to create grade item
     function createGradeItem(title, grade, explanation) {
+        console.log(`Creating grade item: ${title}, grade: ${grade}`);
         const maxGrade = maxGrades[title];
         const scoreColor = grade === undefined ? 'text-gray-500' :
                           grade === 0 ? 'text-red-600' : 
@@ -198,6 +211,7 @@ function displayResults(data) {
     }
 
     // Add sections in order
+    console.log('Adding sections...');
     results.innerHTML += createSection('Critical Requirements', itemCategories.critical, 
         'These items must pass for the paper to be accepted.');
     results.innerHTML += createSection('Documentation', itemCategories.documentation);
@@ -208,6 +222,7 @@ function displayResults(data) {
 
     // Add performance metrics if available
     if (data.timings) {
+        console.log('Adding performance metrics:', data.timings);
         results.innerHTML += `
             <div class="bg-white p-6 rounded-lg shadow-lg">
                 <h2 class="text-2xl font-bold text-gray-900 mb-4">Performance Metrics</h2>
@@ -226,4 +241,5 @@ function displayResults(data) {
             </div>
         `;
     }
+    console.log('Results display complete');
 }
